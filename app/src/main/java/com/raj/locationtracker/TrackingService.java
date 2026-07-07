@@ -3,6 +3,7 @@ package com.raj.locationtracker;
 import android.app.*;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.location.*;
 import android.os.*;
 import androidx.core.app.NotificationCompat;
@@ -13,32 +14,50 @@ import java.util.*;
 public class TrackingService extends Service {
 
     LocationManager lm;
-    LocationListener listener;
     Handler handler = new Handler(Looper.getMainLooper());
-    static final long INTERVAL = 10 * 60 * 1000; // 10 minutes
+    PowerManager.WakeLock wakeLock;
+    long intervalMs = 5 * 60 * 1000;
+    SharedPreferences prefs;
+    double lastLat = 0, lastLon = 0;
+    boolean hasLast = false;
 
     @Override
     public void onCreate() {
         super.onCreate();
+        prefs = getSharedPreferences("tracker_prefs", MODE_PRIVATE);
+
         String channelId = "track_channel";
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel ch = new NotificationChannel(channelId, "Tracking", NotificationManager.IMPORTANCE_LOW);
+            ch.setShowBadge(false);
             ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(ch);
         }
         Notification n = new NotificationCompat.Builder(this, channelId)
-                .setContentTitle("Location Tracker chalu hai")
-                .setContentText("Aapki location background mein save ho rahi hai")
+                .setContentTitle("Location Tracker is running")
+                .setContentText("Your location is being saved in the background")
                 .setSmallIcon(android.R.drawable.ic_menu_mylocation)
                 .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build();
         startForeground(1, n);
+
+        // Wakelock to keep CPU alive
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LocTracker::wl");
+        wakeLock.acquire();
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        int min = prefs.getInt("interval_min", 5);
+        if (intent != null && intent.hasExtra("interval_min"))
+            min = intent.getIntExtra("interval_min", 5);
+        intervalMs = (long) min * 60 * 1000;
+
         lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        handler.removeCallbacks(repeater);
         saveLocationNow();
-        handler.postDelayed(repeater, INTERVAL);
+        handler.postDelayed(repeater, intervalMs);
         return START_STICKY;
     }
 
@@ -46,7 +65,7 @@ public class TrackingService extends Service {
         @Override
         public void run() {
             saveLocationNow();
-            handler.postDelayed(this, INTERVAL);
+            handler.postDelayed(this, intervalMs);
         }
     };
 
@@ -67,11 +86,20 @@ public class TrackingService extends Service {
                 FileWriter fw = new FileWriter(f, true);
                 fw.write(entry + "\n");
                 fw.close();
+
+                // KM calculation
+                if (hasLast) {
+                    float[] res = new float[1];
+                    Location.distanceBetween(lastLat, lastLon, loc.getLatitude(), loc.getLongitude(), res);
+                    float km = res[0] / 1000f;
+                    String todayKey = "km_" + new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+                    float total = prefs.getFloat(todayKey, 0f) + km;
+                    prefs.edit().putFloat(todayKey, total).apply();
+                }
+                lastLat = loc.getLatitude(); lastLon = loc.getLongitude(); hasLast = true;
             }
         } catch (SecurityException se) {
-            // permission missing
         } catch (Exception e) {
-            // ignore
         }
     }
 
@@ -87,17 +115,30 @@ public class TrackingService extends Service {
                 return (area != null ? area : "") + (city.isEmpty() || city.equals(area) ? "" : ", " + city);
             }
         } catch (Exception e) {}
-        return "Unknown jagah";
+        return "Unknown location";
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
         handler.removeCallbacks(repeater);
+        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        // restart if user swipes app away (but keeps tracking on)
+        if (prefs.getBoolean("is_tracking", false)) {
+            Intent restart = new Intent(getApplicationContext(), TrackingService.class);
+            restart.setPackage(getPackageName());
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(restart);
+            else startService(restart);
+        }
+        super.onTaskRemoved(rootIntent);
     }
 
     @Override
     public IBinder onBind(Intent intent) {
         return null;
     }
-              }
+}
