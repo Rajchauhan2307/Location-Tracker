@@ -67,6 +67,16 @@ public class MainActivity extends Activity {
         viewBtn.setOnClickListener(v -> showTimeline());
         root.addView(viewBtn);
 
+        Button shareTodayBtn = new Button(this);
+        shareTodayBtn.setText("📤 Aaj Ka Data Share Karo");
+        shareTodayBtn.setOnClickListener(v -> shareData(true));
+        root.addView(shareTodayBtn);
+
+        Button shareAllBtn = new Button(this);
+        shareAllBtn.setText("📤 Saara Data Share Karo");
+        shareAllBtn.setOnClickListener(v -> shareData(false));
+        root.addView(shareAllBtn);
+
         TextView listTitle = new TextView(this);
         listTitle.setText("\n--- Timeline ---");
         listTitle.setTextSize(18);
@@ -95,6 +105,42 @@ public class MainActivity extends Activity {
             return false;
         }
         return true;
+    }
+
+    void shareData(boolean todayOnly) {
+        try {
+            File f = new File(getFilesDir(), "locations.txt");
+            if (!f.exists()) {
+                Toast.makeText(this, "Abhi koi data nahi hai", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            BufferedReader br = new BufferedReader(new FileReader(f));
+            String line;
+            StringBuilder sb = new StringBuilder();
+            String today = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+            if (todayOnly)
+                sb.append("📍 Mera Aaj Ka Timeline (").append(today).append(")\n\n");
+            else
+                sb.append("📍 Mera Poora Location Timeline\n\n");
+            int count = 0;
+            while ((line = br.readLine()) != null) {
+                if (!todayOnly || line.startsWith(today)) {
+                    sb.append("🕒 ").append(line).append("\n");
+                    count++;
+                }
+            }
+            br.close();
+            if (count == 0) {
+                Toast.makeText(this, "Is din ka koi record nahi", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Intent share = new Intent(Intent.ACTION_SEND);
+            share.setType("text/plain");
+            share.putExtra(Intent.EXTRA_TEXT, sb.toString());
+            startActivity(Intent.createChooser(share, "Timeline share karo"));
+        } catch (Exception e) {
+            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     void showTimeline() {
@@ -135,4 +181,4 @@ public class MainActivity extends Activity {
         super.onRequestPermissionsResult(rc, p, r);
         Toast.makeText(this, "Ab dobara Start dabao", Toast.LENGTH_SHORT).show();
     }
-                     }
+            }
