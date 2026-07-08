@@ -20,22 +20,28 @@ import java.util.*;
 
 public class MainActivity extends Activity {
 
-    TextView statusText, pointsVal, kmVal, intervalVal;
+    TextView statusText, placesVal, kmVal, intervalVal;
     LinearLayout listLayout;
     SharedPreferences prefs;
     int selectedMinutes = 5;
     Button[] intervalBtns;
     int[] intervalOptions = {1, 5, 15, 30, 60};
+    Button startBtn, stopBtn;
 
-    // Colors
-    final int BG = Color.parseColor("#0a0e17");
-    final int CARD = Color.parseColor("#131a2b");
-    final int BORDER = Color.parseColor("#232b40");
-    final int NEON = Color.parseColor("#00d4ff");
-    final int GREEN = Color.parseColor("#00ff88");
-    final int TXT = Color.parseColor("#e6edf3");
-    final int MUTED = Color.parseColor("#5a6472");
-    final int RED = Color.parseColor("#ff5470");
+    // ---- Colour palette (colourful gradient theme) ----
+    final int BG = Color.parseColor("#0d0b1f");        // deep purple-black
+    final int CARD = Color.parseColor("#1a1730");       // card purple
+    final int BORDER = Color.parseColor("#2d2850");
+    final int PURPLE = Color.parseColor("#a855f7");
+    final int PINK = Color.parseColor("#ec4899");
+    final int BLUE = Color.parseColor("#3b82f6");
+    final int CYAN = Color.parseColor("#22d3ee");
+    final int GREEN = Color.parseColor("#22c55e");
+    final int TXT = Color.parseColor("#f1f0ff");
+    final int MUTED = Color.parseColor("#8b86b8");
+    final int RED = Color.parseColor("#f43f5e");
+    final int DULL = Color.parseColor("#241f3d");        // dull/disabled button
+    final int DULLTXT = Color.parseColor("#5a5480");
 
     @Override
     protected void onCreate(Bundle b) {
@@ -50,11 +56,11 @@ public class MainActivity extends Activity {
         root.setPadding(dp(18), dp(24), dp(18), dp(24));
         scroll.addView(root);
 
-        // Header
+        // ---- Header ----
         TextView title = new TextView(this);
         title.setText("Location Tracker");
-        title.setTextSize(24);
-        title.setTextColor(NEON);
+        title.setTextSize(26);
+        title.setTextColor(PINK);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         root.addView(title);
 
@@ -65,8 +71,8 @@ public class MainActivity extends Activity {
         subtitle.setPadding(0, dp(2), 0, dp(16));
         root.addView(subtitle);
 
-        // Status + Stats card
-        LinearLayout statusCard = card();
+        // ---- Status + Stats card (gradient) ----
+        LinearLayout statusCard = gradientCard();
         statusCard.setOrientation(LinearLayout.VERTICAL);
 
         LinearLayout statusRow = new LinearLayout(this);
@@ -84,25 +90,24 @@ public class MainActivity extends Activity {
         statusText = new TextView(this);
         statusText.setText("Tracking Off");
         statusText.setTextSize(16);
-        statusText.setTextColor(TXT);
+        statusText.setTextColor(Color.WHITE);
         statusText.setTypeface(null, android.graphics.Typeface.BOLD);
         statusRow.addView(statusText);
         statusCard.addView(statusRow);
 
         LinearLayout statsRow = new LinearLayout(this);
         statsRow.setOrientation(LinearLayout.HORIZONTAL);
-        statsRow.setPadding(0, dp(14), 0, 0);
-        pointsVal = statBlock(statsRow, "0", "POINTS TODAY");
-        kmVal = statBlock(statsRow, "0.0", "KM MOVED");
-        intervalVal = statBlock(statsRow, selectedMinutes + "m", "INTERVAL");
+        statsRow.setPadding(0, dp(16), 0, 0);
+        placesVal = statBlock(statsRow, "0", "PLACES", CYAN);
+        kmVal = statBlock(statsRow, "0.0", "KM MOVED", PINK);
+        intervalVal = statBlock(statsRow, selectedMinutes + "m", "INTERVAL", PURPLE);
         statusCard.addView(statsRow);
         root.addView(statusCard);
 
-        // Interval selector
-        TextView intLbl = sectionLabel("SAVE LOCATION EVERY");
-        root.addView(intLbl);
+        // ---- Interval selector ----
+        root.addView(sectionLabel("SAVE LOCATION EVERY"));
 
-        LinearLayout intBox = card();
+        LinearLayout intBox = plainCard();
         LinearLayout pills = new LinearLayout(this);
         pills.setOrientation(LinearLayout.HORIZONTAL);
         intervalBtns = new Button[intervalOptions.length];
@@ -113,7 +118,7 @@ public class MainActivity extends Activity {
             pill.setText(m < 60 ? m + "m" : "1h");
             pill.setTextSize(12);
             pill.setAllCaps(false);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(42), 1f);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(44), 1f);
             lp.setMargins(dp(3), 0, dp(3), 0);
             pill.setLayoutParams(lp);
             pill.setPadding(0, 0, 0, 0);
@@ -131,51 +136,76 @@ public class MainActivity extends Activity {
         root.addView(intBox);
         refreshPills();
 
-        // Buttons
-        root.addView(mainButton("▶  START TRACKING", GREEN, Color.parseColor("#04121a"), v -> {
+        // ---- Start / Stop buttons (smart state) ----
+        startBtn = new Button(this);
+        startBtn.setText("▶  START TRACKING");
+        startBtn.setTextSize(15);
+        startBtn.setAllCaps(false);
+        startBtn.setTypeface(null, android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
+        sLp.topMargin = dp(12);
+        startBtn.setLayoutParams(sLp);
+        startBtn.setOnClickListener(v -> {
+            if (prefs.getBoolean("is_tracking", false)) {
+                Toast.makeText(this, "Already tracking!", Toast.LENGTH_SHORT).show();
+                return;
+            }
             if (checkPerms()) {
                 prefs.edit().putBoolean("is_tracking", true).apply();
                 Intent svc = new Intent(this, TrackingService.class);
                 svc.putExtra("interval_min", selectedMinutes);
                 startService(svc);
                 statusText.setText("Tracking Active");
+                updateButtonStates();
                 Toast.makeText(this, "Tracking started!", Toast.LENGTH_SHORT).show();
             }
-        }));
+        });
+        root.addView(startBtn);
 
-        root.addView(outlineButton("⏹  STOP TRACKING", RED, v -> {
+        stopBtn = new Button(this);
+        stopBtn.setText("⏹  STOP TRACKING");
+        stopBtn.setTextSize(15);
+        stopBtn.setAllCaps(false);
+        stopBtn.setTypeface(null, android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams stLp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
+        stLp.topMargin = dp(10);
+        stopBtn.setLayoutParams(stLp);
+        stopBtn.setOnClickListener(v -> {
+            if (!prefs.getBoolean("is_tracking", false)) {
+                Toast.makeText(this, "Tracking is already off", Toast.LENGTH_SHORT).show();
+                return;
+            }
             prefs.edit().putBoolean("is_tracking", false).apply();
+            prefs.edit().putString("last_stop_reason", "manual").apply();
             stopService(new Intent(this, TrackingService.class));
             statusText.setText("Tracking Off");
+            updateButtonStates();
             Toast.makeText(this, "Tracking stopped", Toast.LENGTH_SHORT).show();
-        }));
+        });
+        root.addView(stopBtn);
 
-        // Row: Timeline + Clear
+        // ---- Row: Timeline + Clear ----
         LinearLayout row1 = new LinearLayout(this);
         row1.setOrientation(LinearLayout.HORIZONTAL);
-        row1.addView(halfButton("📖  Timeline", v -> showTimeline(), true));
-        row1.addView(halfButton("🧹  Clear Screen", v -> {
+        row1.addView(halfButton("📖  Timeline", CYAN, v -> showTimeline(), true));
+        row1.addView(halfButton("🧹  Clear Screen", PURPLE, v -> {
             listLayout.removeAllViews();
-            TextView t = new TextView(this);
-            t.setText("Screen cleared. Data is safe — tap Timeline to view again.");
-            t.setTextColor(MUTED);
-            t.setTextSize(13);
-            t.setPadding(0, dp(8), 0, 0);
-            listLayout.addView(t);
+            emptyMsg("Screen cleared. Data is safe — tap Timeline to view.");
             Toast.makeText(this, "Cleared from screen (data safe)", Toast.LENGTH_SHORT).show();
         }, false));
         root.addView(row1);
 
-        // Row: Filter + Export
+        // ---- Row: Filter + Export ----
         LinearLayout row2 = new LinearLayout(this);
         row2.setOrientation(LinearLayout.HORIZONTAL);
-        row2.addView(halfButton("📅  Filter", v -> showFilterDialog(), true));
-        row2.addView(halfButton("📄  Export File", v -> exportFile(), false));
+        row2.addView(halfButton("📅  Filter", PINK, v -> showFilterDialog(), true));
+        row2.addView(halfButton("📄  Export File", BLUE, v -> exportFile(), false));
         root.addView(row2);
 
-        // Timeline label
-        TextView tlLbl = sectionLabel("TIMELINE");
-        root.addView(tlLbl);
+        // ---- Timeline label ----
+        root.addView(sectionLabel("TIMELINE"));
 
         listLayout = new LinearLayout(this);
         listLayout.setOrientation(LinearLayout.VERTICAL);
@@ -183,77 +213,86 @@ public class MainActivity extends Activity {
 
         setContentView(scroll);
 
-        if (prefs.getBoolean("is_tracking", false)) statusText.setText("Tracking Active");
-        showTimeline();
+        // Screen starts EMPTY (user taps Timeline to view)
+        emptyMsg("Tap 📖 Timeline to view your saved locations.");
+        updateStatsOnly();
+        updateButtonStates();
         checkLocationOn();
+    }
+
+    // ---- Smart button state: active bright, inactive dull ----
+    void updateButtonStates() {
+        boolean tracking = prefs.getBoolean("is_tracking", false);
+        // START button
+        GradientDrawable sg = new GradientDrawable();
+        sg.setCornerRadius(dp(16));
+        if (!tracking) {
+            sg.setColors(new int[]{GREEN, CYAN});
+            sg.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
+            startBtn.setTextColor(Color.parseColor("#04121a"));
+        } else {
+            sg.setColor(DULL);
+            startBtn.setTextColor(DULLTXT);
+        }
+        startBtn.setBackground(sg);
+        // STOP button
+        GradientDrawable tg = new GradientDrawable();
+        tg.setCornerRadius(dp(16));
+        if (tracking) {
+            tg.setColors(new int[]{RED, PINK});
+            tg.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
+            stopBtn.setTextColor(Color.WHITE);
+        } else {
+            tg.setColor(DULL);
+            stopBtn.setTextColor(DULLTXT);
+        }
+        stopBtn.setBackground(tg);
     }
 
     void refreshPills() {
         for (int i = 0; i < intervalBtns.length; i++) {
             boolean on = intervalOptions[i] == selectedMinutes;
             GradientDrawable g = new GradientDrawable();
-            g.setCornerRadius(dp(10));
+            g.setCornerRadius(dp(12));
             if (on) {
-                g.setColor(NEON);
-                intervalBtns[i].setTextColor(Color.parseColor("#04121a"));
+                g.setColors(new int[]{PURPLE, PINK});
+                g.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
+                intervalBtns[i].setTextColor(Color.WHITE);
             } else {
-                g.setColor(Color.parseColor("#1a2138"));
-                intervalBtns[i].setTextColor(Color.parseColor("#8b95a5"));
+                g.setColor(DULL);
+                intervalBtns[i].setTextColor(MUTED);
             }
             intervalBtns[i].setBackground(g);
         }
     }
 
     void checkLocationOn() {
-        LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
-        boolean gps = lm.isProviderEnabled(LocationManager.GPS_PROVIDER);
-        if (!gps) {
-            new AlertDialog.Builder(this)
-                .setTitle("Location is OFF")
-                .setMessage("Please turn ON location to track. Open settings now?")
-                .setPositiveButton("Turn ON", (d, w) ->
-                    startActivity(new Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)))
-                .setNegativeButton("Later", null)
-                .show();
-        }
+        try {
+            LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
+            boolean gps = lm.isProviderEnabled(LocationManager.GPS_PROVIDER);
+            if (!gps) {
+                new AlertDialog.Builder(this)
+                    .setTitle("Location is OFF")
+                    .setMessage("Please turn ON location to track. Open settings now?")
+                    .setPositiveButton("Turn ON", (d, w) ->
+                        startActivity(new Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)))
+                    .setNegativeButton("Later", null)
+                    .show();
+            }
+        } catch (Exception e) {}
     }
 
-    // ---------- FILTER DIALOG ----------
+    // ---------- FILTER ----------
     void showFilterDialog() {
-        final String[] opts = {"Today", "Last 7 days", "Last 30 days", "All data", "Pick date + time range"};
+        final String[] opts = {"Today", "Last 7 days", "Last 30 days", "All data"};
         new AlertDialog.Builder(this)
             .setTitle("Show data from")
             .setItems(opts, (d, which) -> {
-                if (which == 0) showFiltered(daysAgo(0), endOfToday(), null, null);
-                else if (which == 1) showFiltered(daysAgo(7), endOfToday(), null, null);
-                else if (which == 2) showFiltered(daysAgo(30), endOfToday(), null, null);
-                else if (which == 3) showFiltered(0, Long.MAX_VALUE, null, null);
-                else pickDateRange();
+                if (which == 0) showFiltered(daysAgo(0), endOfToday());
+                else if (which == 1) showFiltered(daysAgo(7), endOfToday());
+                else if (which == 2) showFiltered(daysAgo(30), endOfToday());
+                else showFiltered(0, Long.MAX_VALUE);
             }).show();
-    }
-
-    void pickDateRange() {
-        Calendar c = Calendar.getInstance();
-        new DatePickerDialog(this, (view, y, m, day) -> {
-            Calendar from = Calendar.getInstance();
-            from.set(y, m, day, 0, 0, 0);
-            // now pick FROM time
-            new TimePickerDialog(this, (tv, hh, mm) -> {
-                from.set(Calendar.HOUR_OF_DAY, hh);
-                from.set(Calendar.MINUTE, mm);
-                final long fromMs = from.getTimeInMillis();
-                // pick TO date
-                new DatePickerDialog(this, (view2, y2, m2, day2) -> {
-                    Calendar to = Calendar.getInstance();
-                    to.set(y2, m2, day2, 23, 59, 59);
-                    new TimePickerDialog(this, (tv2, hh2, mm2) -> {
-                        to.set(Calendar.HOUR_OF_DAY, hh2);
-                        to.set(Calendar.MINUTE, mm2);
-                        showFiltered(fromMs, to.getTimeInMillis(), null, null);
-                    }, 23, 59, true).show();
-                }, y, m, day).show();
-            }, 0, 0, true).show();
-        }, c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH)).show();
     }
 
     long daysAgo(int n) {
@@ -268,7 +307,7 @@ public class MainActivity extends Activity {
         return c.getTimeInMillis();
     }
 
-    void showFiltered(long fromMs, long toMs, String x, String y) {
+    void showFiltered(long fromMs, long toMs) {
         listLayout.removeAllViews();
         SimpleDateFormat parser = new SimpleDateFormat("yyyy-MM-dd  HH:mm", Locale.US);
         try {
@@ -288,7 +327,7 @@ public class MainActivity extends Activity {
                 } catch (Exception ignore) {}
             }
             if (count == 0) emptyMsg("No data found in this range.");
-        } catch (Exception e) { emptyMsg("Error: " + e.getMessage()); }
+        } catch (Exception e) { emptyMsg("Error reading data."); }
     }
 
     // ---------- EXPORT ----------
@@ -306,7 +345,7 @@ public class MainActivity extends Activity {
             share.putExtra(Intent.EXTRA_SUBJECT, "My Location Timeline");
             share.putExtra(Intent.EXTRA_TEXT, sb.toString());
             startActivity(Intent.createChooser(share, "Export Timeline"));
-        } catch (Exception e) { Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show(); }
+        } catch (Exception e) { Toast.makeText(this, "Error exporting", Toast.LENGTH_LONG).show(); }
     }
 
     // ---------- TIMELINE ----------
@@ -323,16 +362,41 @@ public class MainActivity extends Activity {
             String today = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
             int count = 0;
             for (String l : lines) if (l.startsWith(today)) { addEntry(l); count++; }
-            pointsVal.setText(String.valueOf(count));
             if (count == 0) emptyMsg("No records today yet.");
-        } catch (Exception e) { emptyMsg("Error: " + e.getMessage()); }
+        } catch (Exception e) { emptyMsg("Error reading data."); }
+    }
+
+    void updateStatsOnly() {
+        try {
+            File f = new File(getFilesDir(), "locations.txt");
+            String today = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+            Set<String> places = new HashSet<>();
+            if (f.exists()) {
+                BufferedReader br = new BufferedReader(new FileReader(f));
+                String line;
+                while ((line = br.readLine()) != null) {
+                    if (line.startsWith(today)) {
+                        int arrow = line.indexOf("→");
+                        int paren = line.indexOf("(");
+                        if (arrow >= 0 && paren > arrow) {
+                            places.add(line.substring(arrow + 1, paren).trim());
+                        }
+                    }
+                }
+                br.close();
+            }
+            placesVal.setText(String.valueOf(places.size()));
+            String kmKey = "km_" + today;
+            float km = prefs.getFloat(kmKey, 0f);
+            kmVal.setText(String.format(Locale.US, "%.1f", km));
+        } catch (Exception e) {}
     }
 
     void addEntry(String l) {
         LinearLayout item = new LinearLayout(this);
         item.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable g = new GradientDrawable();
-        g.setColor(CARD); g.setCornerRadius(dp(12));
+        g.setColor(CARD); g.setCornerRadius(dp(14));
         g.setStroke(dp(1), BORDER);
         item.setBackground(g);
         item.setPadding(dp(14), dp(12), dp(14), dp(12));
@@ -351,9 +415,9 @@ public class MainActivity extends Activity {
         mapBtn.setText("🗺️ View on Map");
         mapBtn.setTextSize(11);
         mapBtn.setAllCaps(false);
-        mapBtn.setTextColor(NEON);
+        mapBtn.setTextColor(CYAN);
         GradientDrawable mg = new GradientDrawable();
-        mg.setColor(Color.parseColor("#1a2138")); mg.setCornerRadius(dp(8));
+        mg.setColor(DULL); mg.setCornerRadius(dp(8));
         mapBtn.setBackground(mg);
         LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
@@ -394,14 +458,16 @@ public class MainActivity extends Activity {
     // ---------- UI helpers ----------
     int dp(int v) { return (int)(v * getResources().getDisplayMetrics().density); }
 
-    LinearLayout card() {
+    LinearLayout gradientCard() {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable g = new GradientDrawable();
-        g.setColor(CARD); g.setCornerRadius(dp(16));
-        g.setStroke(dp(1), BORDER);
+        g.setColors(new int[]{Color.parseColor("#2d1b4e"), Color.parseColor("#1a1730")});
+        g.setOrientation(GradientDrawable.Orientation.TL_BR);
+        g.setCornerRadius(dp(20));
+        g.setStroke(dp(1), Color.parseColor("#3d2d5e"));
         c.setBackground(g);
-        c.setPadding(dp(16), dp(16), dp(16), dp(16));
+        c.setPadding(dp(18), dp(18), dp(18), dp(18));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.bottomMargin = dp(6);
@@ -409,13 +475,28 @@ public class MainActivity extends Activity {
         return c;
     }
 
-    TextView statBlock(LinearLayout parent, String num, String label) {
+    LinearLayout plainCard() {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(CARD); g.setCornerRadius(dp(16));
+        g.setStroke(dp(1), BORDER);
+        c.setBackground(g);
+        c.setPadding(dp(14), dp(14), dp(14), dp(14));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(6);
+        c.setLayoutParams(lp);
+        return c;
+    }
+
+    TextView statBlock(LinearLayout parent, String num, String label, int colour) {
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setGravity(Gravity.CENTER);
         col.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         TextView n = new TextView(this);
-        n.setText(num); n.setTextSize(20); n.setTextColor(NEON);
+        n.setText(num); n.setTextSize(22); n.setTextColor(colour);
         n.setTypeface(null, android.graphics.Typeface.BOLD);
         n.setGravity(Gravity.CENTER);
         col.addView(n);
@@ -435,47 +516,15 @@ public class MainActivity extends Activity {
         return t;
     }
 
-    Button mainButton(String text, int bg, int textColor, View.OnClickListener click) {
+    Button halfButton(String text, int textColor, View.OnClickListener click, boolean leftMargin) {
         Button btn = new Button(this);
-        btn.setText(text); btn.setTextSize(14); btn.setAllCaps(false);
+        btn.setText(text); btn.setTextSize(12); btn.setAllCaps(false);
         btn.setTextColor(textColor);
-        btn.setTypeface(null, android.graphics.Typeface.BOLD);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(bg); g.setCornerRadius(dp(14));
-        btn.setBackground(g);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
-        lp.topMargin = dp(10);
-        btn.setLayoutParams(lp);
-        btn.setOnClickListener(click);
-        return btn;
-    }
-
-    Button outlineButton(String text, int color, View.OnClickListener click) {
-        Button btn = new Button(this);
-        btn.setText(text); btn.setTextSize(14); btn.setAllCaps(false);
-        btn.setTextColor(color);
         GradientDrawable g = new GradientDrawable();
         g.setColor(CARD); g.setCornerRadius(dp(14));
         g.setStroke(dp(1), BORDER);
         btn.setBackground(g);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
-        lp.topMargin = dp(8);
-        btn.setLayoutParams(lp);
-        btn.setOnClickListener(click);
-        return btn;
-    }
-
-    Button halfButton(String text, View.OnClickListener click, boolean leftMargin) {
-        Button btn = new Button(this);
-        btn.setText(text); btn.setTextSize(12); btn.setAllCaps(false);
-        btn.setTextColor(NEON);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(CARD); g.setCornerRadius(dp(12));
-        g.setStroke(dp(1), BORDER);
-        btn.setBackground(g);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(50), 1f);
         lp.topMargin = dp(8);
         if (leftMargin) lp.rightMargin = dp(4); else lp.leftMargin = dp(4);
         btn.setLayoutParams(lp);
@@ -505,5 +554,15 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int rc, @NonNull String[] p, @NonNull int[] r) {
         super.onRequestPermissionsResult(rc, p, r);
         Toast.makeText(this, "Now tap Start again", Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (prefs != null) {
+            statusText.setText(prefs.getBoolean("is_tracking", false) ? "Tracking Active" : "Tracking Off");
+            updateStatsOnly();
+            updateButtonStates();
+        }
     }
 }
