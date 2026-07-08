@@ -28,9 +28,9 @@ public class MainActivity extends Activity {
     int[] intervalOptions = {1, 5, 15, 30, 60};
     Button startBtn, stopBtn;
 
-    // ---- Colour palette (colourful gradient theme) ----
-    final int BG = Color.parseColor("#0d0b1f");        // deep purple-black
-    final int CARD = Color.parseColor("#1a1730");       // card purple
+    // ---- Colour palette ----
+    final int BG = Color.parseColor("#0d0b1f");
+    final int CARD = Color.parseColor("#1a1730");
     final int BORDER = Color.parseColor("#2d2850");
     final int PURPLE = Color.parseColor("#a855f7");
     final int PINK = Color.parseColor("#ec4899");
@@ -40,8 +40,12 @@ public class MainActivity extends Activity {
     final int TXT = Color.parseColor("#f1f0ff");
     final int MUTED = Color.parseColor("#8b86b8");
     final int RED = Color.parseColor("#f43f5e");
-    final int DULL = Color.parseColor("#241f3d");        // dull/disabled button
+    final int DULL = Color.parseColor("#241f3d");
     final int DULLTXT = Color.parseColor("#5a5480");
+
+    final SimpleDateFormat STAMP = new SimpleDateFormat("yyyy-MM-dd  HH:mm", Locale.US);
+    final SimpleDateFormat AMPM = new SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.US);
+    final SimpleDateFormat AMPM_TIME = new SimpleDateFormat("hh:mm a", Locale.US);
 
     @Override
     protected void onCreate(Bundle b) {
@@ -56,7 +60,7 @@ public class MainActivity extends Activity {
         root.setPadding(dp(18), dp(24), dp(18), dp(24));
         scroll.addView(root);
 
-        // ---- Header ----
+        // Header
         TextView title = new TextView(this);
         title.setText("Location Tracker");
         title.setTextSize(26);
@@ -71,7 +75,7 @@ public class MainActivity extends Activity {
         subtitle.setPadding(0, dp(2), 0, dp(16));
         root.addView(subtitle);
 
-        // ---- Status + Stats card (gradient) ----
+        // Status + Stats card
         LinearLayout statusCard = gradientCard();
         statusCard.setOrientation(LinearLayout.VERTICAL);
 
@@ -104,9 +108,8 @@ public class MainActivity extends Activity {
         statusCard.addView(statsRow);
         root.addView(statusCard);
 
-        // ---- Interval selector ----
+        // Interval selector
         root.addView(sectionLabel("SAVE LOCATION EVERY"));
-
         LinearLayout intBox = plainCard();
         LinearLayout pills = new LinearLayout(this);
         pills.setOrientation(LinearLayout.HORIZONTAL);
@@ -136,14 +139,13 @@ public class MainActivity extends Activity {
         root.addView(intBox);
         refreshPills();
 
-        // ---- Start / Stop buttons (smart state) ----
+        // Start / Stop buttons
         startBtn = new Button(this);
         startBtn.setText("▶  START TRACKING");
         startBtn.setTextSize(15);
         startBtn.setAllCaps(false);
         startBtn.setTypeface(null, android.graphics.Typeface.BOLD);
-        LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
+        LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
         sLp.topMargin = dp(12);
         startBtn.setLayoutParams(sLp);
         startBtn.setOnClickListener(v -> {
@@ -168,8 +170,7 @@ public class MainActivity extends Activity {
         stopBtn.setTextSize(15);
         stopBtn.setAllCaps(false);
         stopBtn.setTypeface(null, android.graphics.Typeface.BOLD);
-        LinearLayout.LayoutParams stLp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
+        LinearLayout.LayoutParams stLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
         stLp.topMargin = dp(10);
         stopBtn.setLayoutParams(stLp);
         stopBtn.setOnClickListener(v -> {
@@ -179,6 +180,7 @@ public class MainActivity extends Activity {
             }
             prefs.edit().putBoolean("is_tracking", false).apply();
             prefs.edit().putString("last_stop_reason", "manual").apply();
+            prefs.edit().putLong("last_stop_time", System.currentTimeMillis()).apply();
             stopService(new Intent(this, TrackingService.class));
             statusText.setText("Tracking Off");
             updateButtonStates();
@@ -186,66 +188,268 @@ public class MainActivity extends Activity {
         });
         root.addView(stopBtn);
 
-        // ---- Row: Timeline + Clear ----
+        // Row: Timeline + Clear
         LinearLayout row1 = new LinearLayout(this);
         row1.setOrientation(LinearLayout.HORIZONTAL);
-        row1.addView(halfButton("📖  Timeline", CYAN, v -> showTimeline(), true));
+        row1.addView(halfButton("📖  Show Data", CYAN, v -> askRangeThen(false), true));
         row1.addView(halfButton("🧹  Clear Screen", PURPLE, v -> {
             listLayout.removeAllViews();
-            emptyMsg("Screen cleared. Data is safe — tap Timeline to view.");
+            emptyMsg("Screen cleared. Data is safe — tap Show Data to view.");
             Toast.makeText(this, "Cleared from screen (data safe)", Toast.LENGTH_SHORT).show();
         }, false));
         root.addView(row1);
 
-        // ---- Row: Filter + Export ----
+        // Row: Today quick + Export
         LinearLayout row2 = new LinearLayout(this);
         row2.setOrientation(LinearLayout.HORIZONTAL);
-        row2.addView(halfButton("📅  Filter", PINK, v -> showFilterDialog(), true));
-        row2.addView(halfButton("📄  Export File", BLUE, v -> exportFile(), false));
+        row2.addView(halfButton("📅  Today", PINK, v -> {
+            showReportOnScreen(startOfToday(), endOfToday(), "Today");
+        }, true));
+        row2.addView(halfButton("📄  Export", BLUE, v -> askRangeThen(true), false));
         root.addView(row2);
 
-        // ---- Timeline label ----
-        root.addView(sectionLabel("TIMELINE"));
-
+        // Timeline label
+        root.addView(sectionLabel("REPORT / TIMELINE"));
         listLayout = new LinearLayout(this);
         listLayout.setOrientation(LinearLayout.VERTICAL);
         root.addView(listLayout);
 
         setContentView(scroll);
 
-        // Screen starts EMPTY (user taps Timeline to view)
-        emptyMsg("Tap 📖 Timeline to view your saved locations.");
+        emptyMsg("Tap 📅 Today or 📖 Show Data to view your report.");
         updateStatsOnly();
         updateButtonStates();
         checkLocationOn();
     }
 
-    // ---- Smart button state: active bright, inactive dull ----
+    // ========== FROM/TO RANGE PICKER (date + time, AM/PM, type-mode) ==========
+    void askRangeThen(final boolean isExport) {
+        // Step 1: FROM date
+        Calendar now = Calendar.getInstance();
+        Toast.makeText(this, "Select FROM (start) date & time", Toast.LENGTH_SHORT).show();
+        DatePickerDialog fromDate = new DatePickerDialog(this, (view, y, mo, d) -> {
+            final Calendar from = Calendar.getInstance();
+            from.set(y, mo, d, 0, 0, 0);
+            TimePickerDialog fromTime = new TimePickerDialog(this, (tv, hh, mm) -> {
+                from.set(Calendar.HOUR_OF_DAY, hh);
+                from.set(Calendar.MINUTE, mm);
+                from.set(Calendar.SECOND, 0);
+                final long fromMs = from.getTimeInMillis();
+                // Step 2: TO date
+                Toast.makeText(this, "Now select TO (end) date & time", Toast.LENGTH_SHORT).show();
+                DatePickerDialog toDate = new DatePickerDialog(this, (view2, y2, mo2, d2) -> {
+                    final Calendar to = Calendar.getInstance();
+                    to.set(y2, mo2, d2, 23, 59, 59);
+                    TimePickerDialog toTime = new TimePickerDialog(this, (tv2, hh2, mm2) -> {
+                        to.set(Calendar.HOUR_OF_DAY, hh2);
+                        to.set(Calendar.MINUTE, mm2);
+                        to.set(Calendar.SECOND, 59);
+                        long toMs = to.getTimeInMillis();
+                        String label = AMPM.format(new Date(fromMs)) + "  →  " + AMPM.format(new Date(toMs));
+                        if (isExport) exportReport(fromMs, toMs, label);
+                        else showReportOnScreen(fromMs, toMs, label);
+                    }, 23, 59, false); // false = AM/PM system
+                    toTime.setTitle("TO (end) time");
+                    toTime.show();
+                }, y, mo, d);
+                toDate.setTitle("TO (end) date");
+                toDate.show();
+            }, 0, 0, false); // false = AM/PM system
+            fromTime.setTitle("FROM (start) time");
+            fromTime.show();
+        }, now.get(Calendar.YEAR), now.get(Calendar.MONTH), now.get(Calendar.DAY_OF_MONTH));
+        fromDate.setTitle("FROM (start) date");
+        fromDate.show();
+    }
+
+    // ========== BUILD DETAILED REPORT (shared by screen + export) ==========
+    List<String> readEntriesInRange(long fromMs, long toMs) {
+        List<String> out = new ArrayList<>();
+        try {
+            File f = new File(getFilesDir(), "locations.txt");
+            if (!f.exists()) return out;
+            BufferedReader br = new BufferedReader(new FileReader(f));
+            String line;
+            while ((line = br.readLine()) != null) {
+                if (line.length() < 17) continue;
+                try {
+                    long t = STAMP.parse(line.substring(0, 17)).getTime();
+                    if (t >= fromMs && t <= toMs) out.add(line);
+                } catch (Exception ignore) {}
+            }
+            br.close();
+        } catch (Exception e) {}
+        return out;
+    }
+
+    // returns a text report string
+    String buildReportText(List<String> entries, String rangeLabel) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("╔══════════════════════════╗\n");
+        sb.append("   📍 LOCATION REPORT\n");
+        sb.append("╚══════════════════════════╝\n\n");
+        sb.append("🗓️ Range: ").append(rangeLabel).append("\n\n");
+
+        if (entries.isEmpty()) {
+            sb.append("No data found in this range.\n");
+            return sb.toString();
+        }
+
+        // SUMMARY
+        String firstTime = "", lastTime = "";
+        Set<String> places = new LinkedHashSet<>();
+        try {
+            firstTime = AMPM_TIME.format(STAMP.parse(entries.get(0).substring(0, 17)));
+            lastTime = AMPM_TIME.format(STAMP.parse(entries.get(entries.size() - 1).substring(0, 17)));
+        } catch (Exception e) {}
+        for (String l : entries) {
+            String p = placeOf(l);
+            if (!p.isEmpty()) places.add(p);
+        }
+        sb.append("📊 SUMMARY\n─────────────────────\n");
+        sb.append("Total Points: ").append(entries.size()).append("\n");
+        sb.append("Places Visited: ").append(places.size()).append("\n");
+        sb.append("First: ").append(firstTime).append("\n");
+        sb.append("Last: ").append(lastTime).append("\n\n");
+
+        // STAY DURATION (group consecutive same place)
+        sb.append("⏱️ STAY DURATION\n─────────────────────\n");
+        String curPlace = null; long curStart = 0, curEnd = 0;
+        for (String l : entries) {
+            String p = placeOf(l);
+            long t = 0;
+            try { t = STAMP.parse(l.substring(0, 17)).getTime(); } catch (Exception e) { continue; }
+            if (curPlace == null) { curPlace = p; curStart = t; curEnd = t; }
+            else if (p.equals(curPlace)) { curEnd = t; }
+            else {
+                sb.append("📍 ").append(curPlace).append(" — ").append(durationText(curStart, curEnd)).append("\n");
+                sb.append("   (").append(AMPM_TIME.format(new Date(curStart))).append(" - ").append(AMPM_TIME.format(new Date(curEnd))).append(")\n");
+                curPlace = p; curStart = t; curEnd = t;
+            }
+        }
+        if (curPlace != null) {
+            sb.append("📍 ").append(curPlace).append(" — ").append(durationText(curStart, curEnd)).append("\n");
+            sb.append("   (").append(AMPM_TIME.format(new Date(curStart))).append(" - ").append(AMPM_TIME.format(new Date(curEnd))).append(")\n");
+        }
+        sb.append("\n");
+
+        // STOP EVENTS
+        sb.append("🔍 STOP EVENTS\n─────────────────────\n");
+        String reason = prefs.getString("last_stop_reason", "none");
+        long stopTime = prefs.getLong("last_stop_time", 0);
+        if (!reason.equals("none") && stopTime > 0) {
+            String when = AMPM.format(new Date(stopTime));
+            if (reason.equals("manual"))
+                sb.append("✅ ").append(when).append(" — Stopped by you (manual)\n");
+            else
+                sb.append("⚠️ ").append(when).append(" — Stopped automatically (app was killed!)\n");
+        } else {
+            sb.append("No stop events recorded.\n");
+        }
+        sb.append("\n");
+
+        // FULL TIMELINE
+        sb.append("📅 FULL TIMELINE\n─────────────────────\n");
+        for (String l : entries) {
+            String tm = "", pl = placeOf(l), co = coordsOf(l);
+            try { tm = AMPM_TIME.format(STAMP.parse(l.substring(0, 17))); } catch (Exception e) {}
+            sb.append("🕐 ").append(tm).append("\n");
+            sb.append("📍 ").append(pl).append("\n");
+            if (!co.isEmpty()) sb.append("   (").append(co).append(")\n");
+            sb.append("\n");
+        }
+        return sb.toString();
+    }
+
+    String placeOf(String l) {
+        int arrow = l.indexOf("→");
+        int paren = l.indexOf("(");
+        if (arrow >= 0 && paren > arrow) return l.substring(arrow + 1, paren).trim();
+        if (arrow >= 0) return l.substring(arrow + 1).trim();
+        return "";
+    }
+    String coordsOf(String l) {
+        int s = l.indexOf('(');
+        int e = l.indexOf(')');
+        if (s >= 0 && e > s) return l.substring(s + 1, e).trim();
+        return "";
+    }
+    String durationText(long start, long end) {
+        long mins = Math.max(0, (end - start) / 60000);
+        if (mins < 60) return mins + " min";
+        long h = mins / 60, m = mins % 60;
+        return h + " hr" + (m > 0 ? " " + m + " min" : "");
+    }
+
+    // ========== SHOW REPORT ON SCREEN ==========
+    void showReportOnScreen(long fromMs, long toMs, String label) {
+        listLayout.removeAllViews();
+        List<String> entries = readEntriesInRange(fromMs, toMs);
+        if (entries.isEmpty()) { emptyMsg("No data found in this range."); return; }
+
+        // Update top stats
+        Set<String> places = new LinkedHashSet<>();
+        for (String l : entries) { String p = placeOf(l); if (!p.isEmpty()) places.add(p); }
+        placesVal.setText(String.valueOf(places.size()));
+
+        // Report card (scrollable text)
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(CARD); g.setCornerRadius(dp(14)); g.setStroke(dp(1), BORDER);
+        card.setBackground(g);
+        card.setPadding(dp(16), dp(16), dp(16), dp(16));
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.bottomMargin = dp(10);
+        card.setLayoutParams(clp);
+
+        TextView report = new TextView(this);
+        report.setText(buildReportText(entries, label));
+        report.setTextColor(TXT);
+        report.setTextSize(13);
+        report.setTypeface(android.graphics.Typeface.MONOSPACE);
+        card.addView(report);
+        listLayout.addView(card);
+
+        // Then individual entries with map buttons (reverse = newest first)
+        List<String> rev = new ArrayList<>(entries);
+        Collections.reverse(rev);
+        for (String l : rev) addEntry(l);
+    }
+
+    // ========== EXPORT REPORT ==========
+    void exportReport(long fromMs, long toMs, String label) {
+        try {
+            List<String> entries = readEntriesInRange(fromMs, toMs);
+            if (entries.isEmpty()) { Toast.makeText(this, "No data in this range", Toast.LENGTH_SHORT).show(); return; }
+            String text = buildReportText(entries, label);
+            Intent share = new Intent(Intent.ACTION_SEND);
+            share.setType("text/plain");
+            share.putExtra(Intent.EXTRA_SUBJECT, "My Location Report");
+            share.putExtra(Intent.EXTRA_TEXT, text);
+            startActivity(Intent.createChooser(share, "Export Report"));
+        } catch (Exception e) { Toast.makeText(this, "Error exporting", Toast.LENGTH_LONG).show(); }
+    }
+
+    // ---- Smart button state ----
     void updateButtonStates() {
         boolean tracking = prefs.getBoolean("is_tracking", false);
-        // START button
         GradientDrawable sg = new GradientDrawable();
         sg.setCornerRadius(dp(16));
         if (!tracking) {
             sg.setColors(new int[]{GREEN, CYAN});
             sg.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
             startBtn.setTextColor(Color.parseColor("#04121a"));
-        } else {
-            sg.setColor(DULL);
-            startBtn.setTextColor(DULLTXT);
-        }
+        } else { sg.setColor(DULL); startBtn.setTextColor(DULLTXT); }
         startBtn.setBackground(sg);
-        // STOP button
         GradientDrawable tg = new GradientDrawable();
         tg.setCornerRadius(dp(16));
         if (tracking) {
             tg.setColors(new int[]{RED, PINK});
             tg.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
             stopBtn.setTextColor(Color.WHITE);
-        } else {
-            tg.setColor(DULL);
-            stopBtn.setTextColor(DULLTXT);
-        }
+        } else { tg.setColor(DULL); stopBtn.setTextColor(DULLTXT); }
         stopBtn.setBackground(tg);
     }
 
@@ -258,10 +462,7 @@ public class MainActivity extends Activity {
                 g.setColors(new int[]{PURPLE, PINK});
                 g.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
                 intervalBtns[i].setTextColor(Color.WHITE);
-            } else {
-                g.setColor(DULL);
-                intervalBtns[i].setTextColor(MUTED);
-            }
+            } else { g.setColor(DULL); intervalBtns[i].setTextColor(MUTED); }
             intervalBtns[i].setBackground(g);
         }
     }
@@ -276,28 +477,13 @@ public class MainActivity extends Activity {
                     .setMessage("Please turn ON location to track. Open settings now?")
                     .setPositiveButton("Turn ON", (d, w) ->
                         startActivity(new Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)))
-                    .setNegativeButton("Later", null)
-                    .show();
+                    .setNegativeButton("Later", null).show();
             }
         } catch (Exception e) {}
     }
 
-    // ---------- FILTER ----------
-    void showFilterDialog() {
-        final String[] opts = {"Today", "Last 7 days", "Last 30 days", "All data"};
-        new AlertDialog.Builder(this)
-            .setTitle("Show data from")
-            .setItems(opts, (d, which) -> {
-                if (which == 0) showFiltered(daysAgo(0), endOfToday());
-                else if (which == 1) showFiltered(daysAgo(7), endOfToday());
-                else if (which == 2) showFiltered(daysAgo(30), endOfToday());
-                else showFiltered(0, Long.MAX_VALUE);
-            }).show();
-    }
-
-    long daysAgo(int n) {
+    long startOfToday() {
         Calendar c = Calendar.getInstance();
-        c.add(Calendar.DAY_OF_YEAR, -n);
         c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0); c.set(Calendar.SECOND, 0);
         return c.getTimeInMillis();
     }
@@ -305,65 +491,6 @@ public class MainActivity extends Activity {
         Calendar c = Calendar.getInstance();
         c.set(Calendar.HOUR_OF_DAY, 23); c.set(Calendar.MINUTE, 59); c.set(Calendar.SECOND, 59);
         return c.getTimeInMillis();
-    }
-
-    void showFiltered(long fromMs, long toMs) {
-        listLayout.removeAllViews();
-        SimpleDateFormat parser = new SimpleDateFormat("yyyy-MM-dd  HH:mm", Locale.US);
-        try {
-            File f = new File(getFilesDir(), "locations.txt");
-            if (!f.exists()) { emptyMsg("No records yet."); return; }
-            BufferedReader br = new BufferedReader(new FileReader(f));
-            String line; List<String> lines = new ArrayList<>();
-            while ((line = br.readLine()) != null) lines.add(line);
-            br.close();
-            Collections.reverse(lines);
-            int count = 0;
-            for (String l : lines) {
-                try {
-                    String stamp = l.substring(0, 17);
-                    long t = parser.parse(stamp).getTime();
-                    if (t >= fromMs && t <= toMs) { addEntry(l); count++; }
-                } catch (Exception ignore) {}
-            }
-            if (count == 0) emptyMsg("No data found in this range.");
-        } catch (Exception e) { emptyMsg("Error reading data."); }
-    }
-
-    // ---------- EXPORT ----------
-    void exportFile() {
-        try {
-            File src = new File(getFilesDir(), "locations.txt");
-            if (!src.exists()) { Toast.makeText(this, "No data to export", Toast.LENGTH_SHORT).show(); return; }
-            BufferedReader br = new BufferedReader(new FileReader(src));
-            String line; StringBuilder sb = new StringBuilder();
-            sb.append("===== LOCATION TIMELINE =====\n\n");
-            while ((line = br.readLine()) != null) sb.append(line).append("\n");
-            br.close();
-            Intent share = new Intent(Intent.ACTION_SEND);
-            share.setType("text/plain");
-            share.putExtra(Intent.EXTRA_SUBJECT, "My Location Timeline");
-            share.putExtra(Intent.EXTRA_TEXT, sb.toString());
-            startActivity(Intent.createChooser(share, "Export Timeline"));
-        } catch (Exception e) { Toast.makeText(this, "Error exporting", Toast.LENGTH_LONG).show(); }
-    }
-
-    // ---------- TIMELINE ----------
-    void showTimeline() {
-        listLayout.removeAllViews();
-        try {
-            File f = new File(getFilesDir(), "locations.txt");
-            if (!f.exists()) { emptyMsg("No records yet. Start tracking."); return; }
-            BufferedReader br = new BufferedReader(new FileReader(f));
-            String line; List<String> lines = new ArrayList<>();
-            while ((line = br.readLine()) != null) lines.add(line);
-            br.close();
-            Collections.reverse(lines);
-            String today = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
-            int count = 0;
-            for (String l : lines) if (l.startsWith(today)) { addEntry(l); count++; }
-            if (count == 0) emptyMsg("No records today yet.");
-        } catch (Exception e) { emptyMsg("Error reading data."); }
     }
 
     void updateStatsOnly() {
@@ -376,11 +503,8 @@ public class MainActivity extends Activity {
                 String line;
                 while ((line = br.readLine()) != null) {
                     if (line.startsWith(today)) {
-                        int arrow = line.indexOf("→");
-                        int paren = line.indexOf("(");
-                        if (arrow >= 0 && paren > arrow) {
-                            places.add(line.substring(arrow + 1, paren).trim());
-                        }
+                        String p = placeOf(line);
+                        if (!p.isEmpty()) places.add(p);
                     }
                 }
                 br.close();
@@ -396,8 +520,7 @@ public class MainActivity extends Activity {
         LinearLayout item = new LinearLayout(this);
         item.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable g = new GradientDrawable();
-        g.setColor(CARD); g.setCornerRadius(dp(14));
-        g.setStroke(dp(1), BORDER);
+        g.setColor(CARD); g.setCornerRadius(dp(14)); g.setStroke(dp(1), BORDER);
         item.setBackground(g);
         item.setPadding(dp(14), dp(12), dp(14), dp(12));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -433,10 +556,8 @@ public class MainActivity extends Activity {
 
     void openMap(String entry) {
         try {
-            int s = entry.indexOf('(');
-            int e = entry.indexOf(')');
-            if (s >= 0 && e > s) {
-                String coords = entry.substring(s + 1, e).replace(" ", "");
+            String coords = coordsOf(entry).replace(" ", "");
+            if (!coords.isEmpty()) {
                 Uri uri = Uri.parse("geo:" + coords + "?q=" + coords);
                 Intent map = new Intent(Intent.ACTION_VIEW, uri);
                 map.setPackage("com.google.android.apps.maps");
@@ -455,7 +576,7 @@ public class MainActivity extends Activity {
         listLayout.addView(t);
     }
 
-    // ---------- UI helpers ----------
+    // ---- UI helpers ----
     int dp(int v) { return (int)(v * getResources().getDisplayMetrics().density); }
 
     LinearLayout gradientCard() {
@@ -479,8 +600,7 @@ public class MainActivity extends Activity {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable g = new GradientDrawable();
-        g.setColor(CARD); g.setCornerRadius(dp(16));
-        g.setStroke(dp(1), BORDER);
+        g.setColor(CARD); g.setCornerRadius(dp(16)); g.setStroke(dp(1), BORDER);
         c.setBackground(g);
         c.setPadding(dp(14), dp(14), dp(14), dp(14));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -521,8 +641,7 @@ public class MainActivity extends Activity {
         btn.setText(text); btn.setTextSize(12); btn.setAllCaps(false);
         btn.setTextColor(textColor);
         GradientDrawable g = new GradientDrawable();
-        g.setColor(CARD); g.setCornerRadius(dp(14));
-        g.setStroke(dp(1), BORDER);
+        g.setColor(CARD); g.setCornerRadius(dp(14)); g.setStroke(dp(1), BORDER);
         btn.setBackground(g);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(50), 1f);
         lp.topMargin = dp(8);
@@ -533,7 +652,7 @@ public class MainActivity extends Activity {
         return btn;
     }
 
-    // ---------- PERMISSIONS ----------
+    // ---- Permissions ----
     boolean checkPerms() {
         List<String> need = new ArrayList<>();
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
