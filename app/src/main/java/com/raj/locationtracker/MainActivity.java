@@ -21,12 +21,18 @@ import java.util.*;
 public class MainActivity extends Activity {
 
     TextView statusText, placesVal, kmVal, intervalVal;
+    TextView stepsVal, vehKmVal;
     LinearLayout listLayout;
     SharedPreferences prefs;
     int selectedMinutes = 5;
     Button[] intervalBtns;
     int[] intervalOptions = {1, 5, 15, 30, 60};
     Button startBtn, stopBtn;
+    EditText smsNumbersInput;
+    Button smsToggleBtn;
+    Button[] smsIntervalBtns;
+    int[] smsIntervalOptions = {5, 10, 30, 60};
+    int selectedSmsMin = 30;
 
     // ---- Colour palette ----
     final int BG = Color.parseColor("#0d0b1f");
@@ -139,7 +145,109 @@ public class MainActivity extends Activity {
         root.addView(intBox);
         refreshPills();
 
-        // Start / Stop buttons
+        // ---- Activity card (Steps + Vehicle KM) ----
+        root.addView(sectionLabel("TODAY'S ACTIVITY"));
+        LinearLayout actCard = plainCard();
+        LinearLayout actRow = new LinearLayout(this);
+        actRow.setOrientation(LinearLayout.HORIZONTAL);
+        stepsVal = statBlock(actRow, "0", "🚶 STEPS", GREEN);
+        vehKmVal = statBlock(actRow, "0.0", "🏍️ VEHICLE KM", BLUE);
+        actCard.addView(actRow);
+        root.addView(actCard);
+
+        // ---- SMS settings section ----
+        root.addView(sectionLabel("AUTO LOCATION SMS"));
+        LinearLayout smsCard = plainCard();
+
+        TextView smsHint = new TextView(this);
+        smsHint.setText("Numbers (comma se alag, e.g. 98765xxxxx,99887xxxxx)");
+        smsHint.setTextSize(11);
+        smsHint.setTextColor(MUTED);
+        smsHint.setPadding(0, 0, 0, dp(8));
+        smsCard.addView(smsHint);
+
+        smsNumbersInput = new EditText(this);
+        smsNumbersInput.setText(prefs.getString("sms_numbers", ""));
+        smsNumbersInput.setTextColor(TXT);
+        smsNumbersInput.setTextSize(13);
+        smsNumbersInput.setHintTextColor(MUTED);
+        smsNumbersInput.setHint("Enter numbers");
+        GradientDrawable inBg = new GradientDrawable();
+        inBg.setColor(DULL); inBg.setCornerRadius(dp(10)); inBg.setStroke(dp(1), BORDER);
+        smsNumbersInput.setBackground(inBg);
+        smsNumbersInput.setPadding(dp(12), dp(10), dp(12), dp(10));
+        LinearLayout.LayoutParams inLp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        smsNumbersInput.setLayoutParams(inLp);
+        smsCard.addView(smsNumbersInput);
+
+        TextView smsIntLbl = new TextView(this);
+        smsIntLbl.setText("Send every");
+        smsIntLbl.setTextSize(11);
+        smsIntLbl.setTextColor(MUTED);
+        smsIntLbl.setPadding(0, dp(12), 0, dp(8));
+        smsCard.addView(smsIntLbl);
+
+        selectedSmsMin = prefs.getInt("sms_interval_min", 30);
+        LinearLayout smsPills = new LinearLayout(this);
+        smsPills.setOrientation(LinearLayout.HORIZONTAL);
+        smsIntervalBtns = new Button[smsIntervalOptions.length];
+        for (int i = 0; i < smsIntervalOptions.length; i++) {
+            final int idx = i;
+            Button pill = new Button(this);
+            int m = smsIntervalOptions[i];
+            pill.setText(m < 60 ? m + "m" : "1h");
+            pill.setTextSize(12);
+            pill.setAllCaps(false);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(42), 1f);
+            lp.setMargins(dp(3), 0, dp(3), 0);
+            pill.setLayoutParams(lp);
+            pill.setPadding(0, 0, 0, 0);
+            pill.setOnClickListener(v -> {
+                selectedSmsMin = smsIntervalOptions[idx];
+                prefs.edit().putInt("sms_interval_min", selectedSmsMin).apply();
+                refreshSmsPills();
+                Toast.makeText(this, "SMS every " + (selectedSmsMin < 60 ? selectedSmsMin + " min" : "1 hour"), Toast.LENGTH_SHORT).show();
+            });
+            smsIntervalBtns[i] = pill;
+            smsPills.addView(pill);
+        }
+        smsCard.addView(smsPills);
+
+        smsToggleBtn = new Button(this);
+        smsToggleBtn.setAllCaps(false);
+        smsToggleBtn.setTextSize(14);
+        smsToggleBtn.setTypeface(null, android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams tglLp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        tglLp.topMargin = dp(12);
+        smsToggleBtn.setLayoutParams(tglLp);
+        smsToggleBtn.setOnClickListener(v -> {
+            boolean on = prefs.getBoolean("sms_on", false);
+            if (!on) {
+                // turning ON - save numbers first
+                String nums = smsNumbersInput.getText().toString().trim();
+                if (nums.isEmpty()) {
+                    Toast.makeText(this, "Enter at least one number first", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                prefs.edit().putString("sms_numbers", nums).apply();
+                if (checkSmsPerm()) {
+                    prefs.edit().putBoolean("sms_on", true).apply();
+                    Toast.makeText(this, "Auto SMS ON", Toast.LENGTH_SHORT).show();
+                }
+            } else {
+                prefs.edit().putBoolean("sms_on", false).apply();
+                Toast.makeText(this, "Auto SMS OFF", Toast.LENGTH_SHORT).show();
+            }
+            refreshSmsToggle();
+        });
+        smsCard.addView(smsToggleBtn);
+        root.addView(smsCard);
+        refreshSmsPills();
+        refreshSmsToggle();
+
+        // ---- Start / Stop buttons (smart state) ----
         startBtn = new Button(this);
         startBtn.setText("▶  START TRACKING");
         startBtn.setTextSize(15);
@@ -432,6 +540,46 @@ public class MainActivity extends Activity {
         } catch (Exception e) { Toast.makeText(this, "Error exporting", Toast.LENGTH_LONG).show(); }
     }
 
+    void refreshSmsPills() {
+        for (int i = 0; i < smsIntervalBtns.length; i++) {
+            boolean on = smsIntervalOptions[i] == selectedSmsMin;
+            GradientDrawable g = new GradientDrawable();
+            g.setCornerRadius(dp(10));
+            if (on) {
+                g.setColors(new int[]{CYAN, BLUE});
+                g.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
+                smsIntervalBtns[i].setTextColor(Color.WHITE);
+            } else { g.setColor(DULL); smsIntervalBtns[i].setTextColor(MUTED); }
+            smsIntervalBtns[i].setBackground(g);
+        }
+    }
+
+    void refreshSmsToggle() {
+        boolean on = prefs.getBoolean("sms_on", false);
+        GradientDrawable g = new GradientDrawable();
+        g.setCornerRadius(dp(14));
+        if (on) {
+            g.setColors(new int[]{GREEN, CYAN});
+            g.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
+            smsToggleBtn.setText("✅  SMS is ON  (tap to turn OFF)");
+            smsToggleBtn.setTextColor(Color.parseColor("#04121a"));
+        } else {
+            g.setColor(DULL);
+            smsToggleBtn.setText("⭕  SMS is OFF  (tap to turn ON)");
+            smsToggleBtn.setTextColor(MUTED);
+        }
+        smsToggleBtn.setBackground(g);
+    }
+
+    boolean checkSmsPerm() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.SEND_SMS}, 2);
+            Toast.makeText(this, "Grant SMS permission, then tap ON again", Toast.LENGTH_LONG).show();
+            return false;
+        }
+        return true;
+    }
+
     // ---- Smart button state ----
     void updateButtonStates() {
         boolean tracking = prefs.getBoolean("is_tracking", false);
@@ -513,6 +661,16 @@ public class MainActivity extends Activity {
             String kmKey = "km_" + today;
             float km = prefs.getFloat(kmKey, 0f);
             kmVal.setText(String.format(Locale.US, "%.1f", km));
+
+            // Steps + Vehicle km
+            if (stepsVal != null) {
+                int steps = prefs.getInt("steps_" + today, 0);
+                stepsVal.setText(String.valueOf(steps));
+            }
+            if (vehKmVal != null) {
+                float vkm = prefs.getFloat("vkm_" + today, 0f);
+                vehKmVal.setText(String.format(Locale.US, "%.1f", vkm));
+            }
         } catch (Exception e) {}
     }
 
